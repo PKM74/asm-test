@@ -7,3 +7,4 @@ Small Test OS i've made (i was bored)
 * nasm
 * mtools
 * objcopy
+* objconv
