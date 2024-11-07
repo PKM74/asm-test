@@ -210,8 +210,8 @@ loaderr:
 	jmp wait_reboot
 
 wait_reboot:
-	;mov si, reboot_msg
-	;call print
+	mov si, reboot_msg
+	call print
 	mov ah, 0
 	int 16h			; wait untill keypress
 	jmp 0FFFFh:0 	; jump to begining of BIOS
@@ -313,10 +313,10 @@ disk_reset:
     ret
 ; Messages
 ; | [Name] | [Type] | [Text/Data] |
-reboot_msg:		db 'Press Any Key to Reboot...', ENDL, 0
+reboot_msg:		db  ENDL,'Press Any Key to Reboot...', ENDL, 0
 loaderr_msg:	db 'Failed!', ENDL, 0
-loaderr1_msg:	db 'ERR1', ENDL, 0
-loaderr2_msg:	db 'ERR2', ENDL, 0
+;loaderr1_msg:	db 'ERR1', ENDL, 0
+;loaderr2_msg:	db 'ERR2', ENDL, 0
 msg:			db 'Loading Main System...', 0
 mainfile:		db 'BOOT    BIN'
 main_cluster:	dw 0
