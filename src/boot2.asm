@@ -6,7 +6,6 @@
 [BITS 16]
 %define ENDL 0x0D, 0x0A
 
-
 main:
 	cli
 	;setup stack
@@ -18,14 +17,10 @@ main:
 	xor dh,dh
 	push dx
 
-
-	jmp .done
-
-.done:
-	mov si, msg
+	mov si, msg_done
 	call print
-	hlt
-
+	jmp load
+	
 print:
         lodsb
         or al, al               ; zero is end of string
@@ -36,11 +31,24 @@ print:
         jmp print
 .done:
         ret
-        
+
+load:
+	mov si, msg_loading
+	call print
+	mov si, msg_fsload
+	call print
+	jmp loaderrfs
+
+
+
+loaderrfs:
+	mov si, loaderrfs_msg
+	call print
+	jmp wait_reboot
 loaderr:
-        mov si, loaderr_msg
-        call print
-        jmp wait_reboot
+    mov si, loaderr_msg
+    call print
+    jmp wait_reboot    
 wait_reboot:
         mov si, reboot_msg
         call print
@@ -50,7 +58,9 @@ wait_reboot:
 
 ; Messages
 ; | [Name] | [Type] | [Text/Data] |
-reboot_msg:             db 'Press Any Key to Reboot...', ENDL, 0
-loaderr_msg:    		db 'Loading Failed!', ENDL, 0
-msg:                    db 'Done!', ENDL, 0
-main_cluster:   		dw 0
+msg_loading:	db 'Loading Second Phase...', ENDL, 0
+msg_fsload:		db 'Setting Up Filesystem...', ENDL, 0
+reboot_msg:     db ENDL, 'Press Any Key to Reboot...', ENDL, 0
+loaderr_msg:    db 'Loading Failed!', ENDL, 0
+loaderrfs_msg:  db 'ERROR: 1', ENDL, 'Failed to Initialize Filesystem', ENDL, 0
+msg_done:       db '		Done!', ENDL, 0

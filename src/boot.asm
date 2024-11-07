@@ -9,6 +9,7 @@
 ; FAT12 Header
 jmp short main
 nop
+
 bdb_oem:                    db 'MSWIN4.1'           ; 8 bytes
 bdb_bytes_per_sector:       dw 512
 bdb_sectors_per_cluster:    db 1
@@ -24,20 +25,21 @@ bdb_hidden_sectors:         dd 0
 bdb_large_sector_count:     dd 0
 
 ; extended boot record
-ebr_drive_number:           db 0                    ; 0x00 floppy, 0x80 hdd, pretty much useless
+ebr_drive_number:           db 0                    ; 0x00 floppy, 0x80 hdd, useless
                             db 0                    ; reserved
 ebr_signature:              db 29h
 ebr_volume_id:              db 12h, 34h, 56h, 78h   ; serial number, value doesn't matter
-ebr_volume_label:           db 'TESTOS      '       ; 11 bytes, padded with spaces
+ebr_volume_label:           db 'TESTOS     '		; 11 bytes, padded with spaces
 ebr_system_id:              db 'FAT12   '           ; 8 bytes, padded with spaces
 
 ; Code Starts Here
 
 main:
-	xor ax, ax 		; zero out AX
+	mov ax, 0 		;cannot set ES/DS directly
 	mov ds, ax
 	mov es, ax
 
+	;stack setup
 	mov ss, ax
 	mov sp, 0x7C00
 
@@ -47,50 +49,62 @@ main:
 	
 .load:
 
-	;Read Something From Diskette
-	mov [ebr_drive_number], dl ; DL should always be Drive Number
 
-	mov si, msg
-	call print
+    ; read something from floppy disk
+    ; BIOS should set DL to drive number
+    mov [ebr_drive_number], dl
 
-	push es
-	mov ah, 08h
-	int 13h
-	jc loaderr
-	pop es
+    ; show loading message
+    mov si, msg
+    call print
 
-	and cl, 0x3F	; Remove top 2 Bits
-	xor ch, ch		; Zero out CH
-	mov [bdb_sectors_per_track], cx	; Sector Count
-	inc dh			; Increment DH
-	mov [bdb_heads], dh	; Head Count
+    ; read drive parameters (sectors per track and head count),
+    ; instead of relying on data on formatted disk
+    push es
+    mov ah, 08h
+    int 13h
+    jc loaderr
+    pop es
 
-	; Compute LBA of root DIR = reserved + fats * sectors_per_fat
-	mov ax, [bdb_sectors_per_fat]
-	mov bl, [bdb_fat_count]
-	xor bh, bh		; Zero Out BH
-	mul bx
-	add ax, [bdb_reserved_sectors]
-	push ax
+    and cl, 0x3F                        ; remove top 2 bits
+    xor ch, ch
+    mov [bdb_sectors_per_track], cx     ; sector count
 
-	; Compute Size of Root DIR
-	mov ax, [bdb_dir_entries_count]
-	shl ax, 5
-	xor dx, dx		; Zero Out DX
-	div word [bdb_bytes_per_sector]
-	test dx, dx
-	jz .root_dir
-	inc ax
+    inc dh
+    mov [bdb_heads], dh                 ; head count
+
+    ; compute LBA of root directory = reserved + fats * sectors_per_fat
+    ; note: this section can be hardcoded
+    mov ax, [bdb_sectors_per_fat]
+    mov bl, [bdb_fat_count]
+    xor bh, bh
+    mul bx                              ; ax = (fats * sectors_per_fat)
+    add ax, [bdb_reserved_sectors]      ; ax = LBA of root directory
+    push ax
+
+    ; compute size of root directory = (32 * number_of_entries) / bytes_per_sector
+    mov ax, [bdb_dir_entries_count]
+    shl ax, 5                           ; ax *= 32
+    xor dx, dx                          ; dx = 0
+    div word [bdb_bytes_per_sector]     ; number of sectors we need to read
+
+    test dx, dx                         ; if dx != 0, add 1
+    jz .root_dir
+    inc ax                              ; division remainder != 0, add 1
+                                        ; this means we have a sector only partially filled with entries
 
 .root_dir:
 
-	; Read root DIR
-	mov cl, al
-	pop ax
-	mov dl, [ebr_drive_number]
-	mov bx, buffer
-	call disk_read
+    ; read root directory
+    mov cl, al                          ; cl = number of sectors to read = size of root directory
+    pop ax                              ; ax = LBA of root directory
+    mov dl, [ebr_drive_number]          ; dl = drive number (we saved it previously)
+    mov bx, buffer                      ; es:bx = buffer
+    call disk_read
 
+    ; search for kernel.bin
+    xor bx, bx
+    mov di, buffer
 .search:
     mov si, mainfile
     mov cx, 11                          ; compare up to 11 characters
@@ -103,10 +117,8 @@ main:
     inc bx
     cmp bx, [bdb_dir_entries_count]
     jl .search
-
     ; kernel not found
     jmp loaderr
-
 .found:
 
     ; di should have the address to the entry
@@ -166,9 +178,9 @@ main:
 
     mov [main_cluster], ax
     jmp .load_loop
-    
-.read_finish:
 
+.read_finish:
+    
     ; jump to our kernel
     mov dl, [ebr_drive_number]          ; boot device in dl
 
@@ -178,13 +190,20 @@ main:
 
     jmp LOAD_SEGMENT:LOAD_OFFSET
 
-    jmp wait_reboot            			 ; should never happen
+    jmp wait_reboot            ; should never happen
 
-    cli                                 ; disable interrupts, this way CPU can't get o>
+    cli                                 ; disable interrupts, this way CPU can't get out of "halt" state
     hlt
 
 
-
+;loaderr1:
+;	mov si, loaderr1_msg
+;	call print
+;	call loaderr
+;loaderr2:
+;	mov si, loaderr2_msg
+;	call print
+;	call loaderr
 loaderr:
 	mov si, loaderr_msg
 	call print
@@ -212,9 +231,9 @@ print:
 	jmp print
 .done:
 	ret
+	mov si, 0
 
 ; Disk Routines
-
 lba_to_chs:
 
     push ax
@@ -228,7 +247,7 @@ lba_to_chs:
     mov cx, dx                          ; cx = sector
 
     xor dx, dx                          ; dx = 0
-    div word [bdb_heads]                ; ax = (LBA / SectorsPerTrack) / Heads = cylin>
+    div word [bdb_heads]                ; ax = (LBA / SectorsPerTrack) / Heads = cylinder
                                         ; dx = (LBA / SectorsPerTrack) % Heads = head
     mov dh, dl                          ; dh = head
     mov ch, al                          ; ch = cylinder (lower 8 bits)
@@ -240,6 +259,7 @@ lba_to_chs:
     pop ax
     ret
 
+
 disk_read:
 
     push ax                             ; save registers we will modify
@@ -248,15 +268,15 @@ disk_read:
     push dx
     push di
 
-    push cx                             ; temporarily save CL (number of sectors to re>
+    push cx                             ; temporarily save CL (number of sectors to read)
     call lba_to_chs                     ; compute CHS
     pop ax                              ; AL = number of sectors to read
-
+    
     mov ah, 02h
     mov di, 3                           ; retry count
 
 .retry:
-    pusha                               ; save all registers, we don't know what bios >
+    pusha                               ; save all registers, we don't know what bios modifies
     stc                                 ; set carry flag, some BIOS'es don't set it
     int 13h                             ; carry flag cleared = success
     jnc .done                           ; jump if carry not set
@@ -272,6 +292,7 @@ disk_read:
 .fail:
     ; all attempts are exhausted
     jmp loaderr
+
 
 .done:
     popa
@@ -293,8 +314,10 @@ disk_reset:
 ; Messages
 ; | [Name] | [Type] | [Text/Data] |
 reboot_msg:		db 'Press Any Key to Reboot...', ENDL, 0
-loaderr_msg:	db 'Loading Failed!', ENDL, 0
-msg:			db 'Loading Main System...', ENDL, 0
+loaderr_msg:	db 'Failed!', ENDL, 0
+loaderr1_msg:	db 'ERR1', ENDL, 0
+loaderr2_msg:	db 'ERR2', ENDL, 0
+msg:			db 'Loading Main System...', 0
 mainfile:		db 'BOOT    BIN'
 main_cluster:	dw 0
 LOAD_OFFSET		equ 0
