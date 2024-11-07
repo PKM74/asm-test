@@ -14,8 +14,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install dependencies
+      run: sudo apt install nasm 
+
     - name: make
       run: make
     
-    - name: Install dependencies
-      run: apt install nasm 
